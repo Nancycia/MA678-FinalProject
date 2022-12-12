@@ -1,0 +1,411 @@
+---
+title: "678FinalProject"
+author: "Lintong Li"
+date: "2022-12-09"
+output:
+  pdf_document: default
+---
+
+## Abstract
+
+IMDB is currently an online database of movies, TV shows,etc., which includes names of directors and actors, number of Facebook likes, genres, ratings, vote counts, etc. A commercially successful movie not only entertains the fans but also helps the movie company to earn a lot of revenue. Thus, leaving the question, what factors are so critical in influencing a movie's global revenue? To address this question, I attempted to build a multilevel model with level: genre. The dataset provides a total of 22 raw features, including the movie's budget and revenue. Most of these movies were released between 1999 and 2019. This report contains four main parts: Introduction, Method, Result and Discussion.
+
+## Introduction
+
+As IMDB has become the most popular movie rating platform, the amount of data stored in it is very large with approximately 5,000 movies, each with its characteristics, such as genre, duration, budget, global revenue, etc.
+
+Specifically, some famous movies are translated into different languages, such as "Lucy", which was released in 2014 and was converted into 5 other languages: Mandarin, French, Italian, German, Spanish and Korean, while the movies that make the most money are generally the ones with sizable budgets, such as ***action*****, *adventure*** and ***drama*** released in 2019: "The Avengers," with a top budget of 356 million. Due to the large amount of money required for its production and promotion, its impressive presentation can attract more people to watch it and leave positive reviews. Compared to other movies, it has the highest global revenue of 2.8 billion. However, there is a difference in the impact of each genre of movie on revenue.
+
+Therefore, I decided to introduce a multilevel model to explore which factors and how they affect the global revenue of different genre of movies.
+
+## Method
+
+### Data processing
+
+I found the dataset published on **Kaggle**: Netflix Movies and TV Shows Dataset, named **IMDB movies.csv**
+
+Firstly, I removed the whitespaces of all columns. Secondly, I filtered out the data between 1999 and 2019, probably because movies were not prevalent before 1999, and after 2019, due to COVID, there were fewer opportunities for crowds to gather, leading the movie industry gradually went downhill. Thirdly, I split one row of the genre columns belonging to the same movie into multiple rows, keeping the genre and movie title in one-to-one correspondence. Besides, the budget column was converted into dollar units, and the dollar signs were removed and converted into numeric types to facilitate data analysis. Then, I log-transformed all numeric columns to make the plot easier to read. Finally, I removed all duplicate values and null values. Here are some explanations of columns:
+
+|      column names      | explanation                          |
+|:----------------------:|:-------------------------------------|
+|         title          | ID name of movie                     |
+|         genre          | genre of movie                       |
+|        duration        | How long is the movie in minutes     |
+|        avg_vote        | IMDb User Rating                     |
+|         votes          | Number of votes for the rating       |
+|    usa_gross_income    | USA revenue in dollars               |
+| worldwide_gross_income | Global revenue in dollars            |
+|       metascore        | Weighted average of reviews          |
+|   reviews_from_users   | Number of reviews                    |
+|  reviews_from_critics  | Number of critical reviews           |
+|         budget         | Amount of money for movie production |
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(libr)
+library(hrbrthemes)
+library(viridis)
+library(ggcorrplot)
+library(lme4)
+library(lmerTest)
+library(lattice)
+library(gridExtra)
+library(devtools)
+library(merTools)
+
+```
+
+```{r include=FALSE}
+##read csv file
+movies <- read.csv("IMDb_movies.csv",header=TRUE)
+#clean the whitespace
+my_data <- as_tibble(movies)
+moviee <- my_data %>% 
+  mutate(across(where(is.character), str_remove_all, pattern = fixed(" ")))
+```
+
+```{r include=FALSE}
+#Count movies by year
+ggplot(moviee, aes(year)) +
+  geom_bar() + ggtitle("# of Movie by Year") + 
+  scale_x_continuous(breaks=seq(1927,2022,by=9))
+
+#Filter movies data from 1999 to 2020 as research scope
+movie_cleanByYear <- moviee %>% filter(year >= 1999 & year < 2020)
+```
+
+```{r include=FALSE}
+#split into 19 movies type
+moviee$genre <- as.character(moviee$genre)
+movie_Genresplit <- movie_cleanByYear %>% 
+    mutate(genre=strsplit(genre, ",")) %>% 
+    unnest(genre) %>%
+    mutate(across('genre', str_replace, 'Musical', 'Music'))
+```
+
+```{r include=FALSE}
+#EDA movies type from 1999 to 2019
+ggplot(movie_Genresplit, aes(x = genre, fill = genre)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle=45)) 
+```
+
+```{r include=FALSE}
+#Extract numeric values from budget
+movie_Genresplit$BudgetNum <- as.numeric(str_extract(movie_Genresplit$budget, "[0-9]+"))
+
+#Extract character (currency) values from budget
+movie_Genresplit$BudgetCurrency <- str_extract(movie_Genresplit$budget, "[aA-zZ]+")
+```
+
+```{r include=FALSE}
+#Convert multiple currency to USD
+movie_cleanByBudget <- datastep(movie_Genresplit, {
+  if (is.na(BudgetCurrency))
+    ConvertedAmount  <- BudgetNum
+  else if (BudgetCurrency == "DEM")
+    ConvertedAmount <- BudgetNum * 0.539
+  else if (BudgetCurrency == "GBP")
+    ConvertedAmount <- BudgetNum * 1.23
+  else if (BudgetCurrency == "EUR")
+    ConvertedAmount <- BudgetNum * 1.05
+  else if (BudgetCurrency == "FRF")
+    ConvertedAmount <- BudgetNum * 0.16
+  else if (BudgetCurrency == "ESP")
+    ConvertedAmount <- BudgetNum * 1.05
+  else if (BudgetCurrency == "SEK")
+    ConvertedAmount <- BudgetNum * 0.096
+  else if (BudgetCurrency == "CAD")
+    ConvertedAmount <- BudgetNum * 0.73
+  else if (BudgetCurrency == "AUD")
+    ConvertedAmount <- BudgetNum * 0.68
+  else if (BudgetCurrency == "ATS")
+    ConvertedAmount <- BudgetNum * 0.077
+  else if (BudgetCurrency == "INR")
+    ConvertedAmount <- BudgetNum * 0.012
+  else if (BudgetCurrency == "DKK")
+    ConvertedAmount <- BudgetNum * 0.14
+  else if (BudgetCurrency == "NOK")
+    ConvertedAmount <- BudgetNum * 0.100
+  else if (BudgetCurrency == "THB")
+    ConvertedAmount <- BudgetNum * 0.029
+  else if (BudgetCurrency == "BRL")
+    ConvertedAmount <- BudgetNum * 0.19
+  else if (BudgetCurrency == "FIM")
+    ConvertedAmount <- BudgetNum * 0.177
+  else if (BudgetCurrency == "SGD")
+    ConvertedAmount <- BudgetNum * 0.74
+  else if (BudgetCurrency == "JPY")
+    ConvertedAmount <- BudgetNum * 0.0073
+  else if (BudgetCurrency == "HUF")
+    ConvertedAmount <- BudgetNum * 0.0025
+  else if (BudgetCurrency == "MXN")
+    ConvertedAmount <- BudgetNum * 0.051
+  else if (BudgetCurrency == "CNY")
+    ConvertedAmount <- BudgetNum * 0.14
+  else if (BudgetCurrency == "CZK")
+    ConvertedAmount <- BudgetNum * 0.043
+  else if (BudgetCurrency == "HKD")
+    ConvertedAmount <- BudgetNum * 0.13
+  else if (BudgetCurrency == "CHF")
+    ConvertedAmount <- BudgetNum * 1.07
+  else if (BudgetCurrency == "KRW")
+    ConvertedAmount <- BudgetNum * 0.00077
+  else if (BudgetCurrency == "PLN")
+    ConvertedAmount <- BudgetNum * 0.22
+  else if (BudgetCurrency == "CLP")
+    ConvertedAmount <- BudgetNum * 0.0012
+  else if (BudgetCurrency == "NZD")
+    ConvertedAmount <- BudgetNum * 0.64
+  else if (BudgetCurrency == "NGN")
+    ConvertedAmount <- BudgetNum * 0.0022
+  else if (BudgetCurrency == "ARS")
+    ConvertedAmount <- BudgetNum * 0.0059
+  else if (BudgetCurrency == "ILS")
+    ConvertedAmount <- BudgetNum * 0.29
+  else if (BudgetCurrency == "DOP")
+    ConvertedAmount <- BudgetNum * 0.018
+  else if (BudgetCurrency == "ISK")
+    ConvertedAmount <- BudgetNum * 0.007
+})
+```
+
+```{r include=FALSE}
+#Remove $ and duplicates
+movie_cleanByBudget$worlwide_gross_income = as.numeric(gsub("\\$", "", movie_cleanByBudget$worlwide_gross_income))
+movie_cleanByBudget$usa_gross_income = as.numeric(gsub("\\$", "", movie_cleanByBudget$usa_gross_income)) 
+movie_Distinct <- movie_cleanByBudget %>% distinct()
+```
+
+```{r include=FALSE}
+#Select specific columns and rename
+movieClean <- movie_Distinct %>% 
+  dplyr:: select(title, genre, duration, avg_vote, votes, usa_gross_income,reviews_from_users,reviews_from_critics, worlwide_gross_income,metascore,ConvertedAmount) %>%
+  rename(budget = ConvertedAmount,
+         global_revenue = worlwide_gross_income,
+         usa_revenue = usa_gross_income,
+         rating = avg_vote)#no duplicates ana NA values
+```
+
+```{r include=FALSE}
+#Log transformation of specific column
+movieClean$genre <- factor(movieClean$genre)
+movieClean$usa_revenue <- log(movieClean$usa_revenue + 1)
+movieClean$global_revenue <- log(movieClean$global_revenue + 1)
+movieClean$votes <- log(movieClean$votes + 1)
+movieClean$budget <- log(movieClean$budget + 1)
+movieClean$duration <- log(movieClean$duration + 1)
+movieClean$rating <- log(movieClean$rating+ 1)
+movieClean$metascore <- log(movieClean$metascore + 1)
+movieClean$reviews_from_users <- log(movieClean$reviews_from_users + 1)
+movieClean$reviews_from_crtics <- log(movieClean$reviews_from_critics + 1)
+```
+
+### Exploratory Data Analysis
+
+I got cleaned data with 12302 observations and 11 variables by processing data, taking global revenue as the dependent variable and 11 independent variables. However, whether every variable is useful or not depends entirely on the following exploring data analysis process.
+
+```{r echo=FALSE, fig.cap="relationship between rating and global revenue"}
+ggplot(data=movieClean) +
+  aes(x=rating,y=global_revenue) +
+  geom_point(aes(color = genre),alpha = 0.3) +
+  geom_smooth(aes(color = genre),method = "lm",se=F,formula = 'y ~ x') +
+  xlab("rating") + ylab("global revenue")
+```
+
+Figure 1 shows the relationship between ***rating*** and ***global revenue***in genre level. Overall, there is an upward trend in the straight line indicating a positive correlation between ***rating*** and ***global revenue***. Looking at each genre, there are differences in the intercept and slope, with the largest slope and smallest intercept for Western films, whose revenues are strongly influenced by ratings.
+
+```{r echo=FALSE,fig.cap="relationship between metascore and global revenue"}
+ggplot(data=movieClean) +
+  aes(x=metascore,y=global_revenue) +
+  geom_point(aes(color = genre),alpha = 0.3) +
+  geom_smooth(aes(color = genre),method = "lm",se=F,formula = 'y ~ x') +
+  xlab("metascore") + ylab("global revenue")
+```
+
+Figure 2 shows the relationship between ***metascore*** and ***global revenue*** at genre level, showing an upward trend. However, the trends in the distribution of meta-scores and ratings are similar across genres, so I believe that these two variables are extremely correlated. Besides, after plotting the relationship between ***global revenue***and ***duration*****, *votes, budge****t*, and ***usa revenue***, I found that the trends were almost identical, so I put them in the appendix.
+
+### model fitting
+
+Focusing on multiple movie genres, I decided to use a multilevel model to fit **IMDB data**. Unfortunately, continuous data arising do not follow the bell curve, so I applied the log(variable +1) transformation to make it as \"normal\" as possible. Here is the correlation matrix of all the numerical columns used to determine which predictor variables are selected:
+
+```{r include=FALSE}
+#Select several numeric column 
+movie_num <- movie_Distinct %>%
+  dplyr::select(duration,avg_vote,votes,ConvertedAmount,usa_gross_income,worlwide_gross_income,metascore,reviews_from_users,reviews_from_critics) %>% 
+  rename(budget = ConvertedAmount,
+         global_revenue = worlwide_gross_income,
+         usa_revenue = usa_gross_income,
+         rate = avg_vote)
+```
+
+```{r echo=FALSE,fig.cap="correlation matrix"}
+corr <- round(cor(movie_num), 1)
+ggcorrplot(corr,
+           lab = TRUE,colors = c("darkred", "white", "steelblue"),
+           lab_size = 3,
+           tl.cex =10,
+           type = "upper")
+```
+
+Figure 3 shows the correlation matrix of all potential variables related to global revenue. As an aboved statement, the correlation coefficient between ***metascore*** and ***rating*** is 0,7, which is indeed highly correlated, so I decided to keep ***metascore*** and remove ***rating. usa revenue, votes*** and ***budget***are the variables that I feel significantly affect the outcome variables, so I kept them directly. However, *reviews from users* and *reviews from critics* are also highly correlated with *votes*, so I removed them as well.
+
+Furthermore, since there is different intercept and different slope in each genre by exploring data, I fitted the multilevel level with a random slope and random intercept, which allows the impact of all predictors to vary randomly from one genre to another. Here is the model I created:
+
+```{r,warning=FALSE}
+model <- lmer(global_revenue ~ duration + votes + budget + metascore + usa_revenue +(1 + duration + votes + budget + metascore + usa_revenue| genre), data = movieClean)
+summary(model)
+```
+
+Here is the table of fixed effects, indicating that all variables are considered statistically significant at the α = 0.5 level (p \<0.05). I also draw a plot to clarify as follows.
+
+|                |          |            |       |         |                 |
+|----------------|----------|------------|-------|---------|-----------------|
+| Fixed effects: |          |            |       |         |                 |
+|                | Estimate | Std. Error | df    | t value | Pr(\>\|t\|)     |
+| (Intercept)    | -2.64    | 0.44       | 42.09 | -5.98   | 4.21e-07 \*\*\* |
+| duration       | 0.43     | 0.10       | 30.82 | 4.27    | 0.000173 \*\*\* |
+| votes          | 0.35     | 0.02       | 14.37 | 16.67   | 8.46e-11 \*\*\* |
+| budget         | 0.27     | 0.03       | 62.23 | 8.06    | 3.06e-11 \*\*\* |
+| metascore      | 0.14     | 0.05       | 17.90 | 3.03    | 0.007272 \*\*   |
+| usa_revenue    | 0.55     | 0.02       | 17.71 | 24.66   | 3.70e-15 \*\*\* |
+
+```{r include=TRUE, echo=FALSE}
+plotFEsim(FEsim(model, n.sims = 100), level = 0.9, stat = 'median', intercept = FALSE)
+```
+
+Here is the table of random effects at genre level and plot the results of a simulation of the random effects to clarify.
+
+```{r include=TRUE, echo=FALSE}
+round(ranef(model)$genre, digits = 2)
+
+plotREsim(REsim(model, n.sims = 1000))
+```
+
+The baseline of global revenue is quite different in each genre, which validates that many people prefer to pay for animated movie and adventure movie. Also, ***duration***and ***budget***are the two parameters that fluctuate relatively more.
+
+## Result
+
+### Interpretation
+
+Let's take action movie for example.
+
+```{r}
+coef(model)
+```
+
+I created a formula as follows: $$log(globalrevenue + 1)= -3.05 + 0.12\cdot log(duration + 1) + 0.29\cdot log(votes + 1) + 0.50\cdot log(budget +1) + 0.38\cdot log(metascore +1) + 0.41\cdot log(usarevenue +1)$$
+
+All coefficients are positive, which indicates that all variables have a positive impact on movies' global revenue. For each 1% difference in ***metascore***, the predicted difference in ***global revenue*** is 0.38%. For each 1% difference in ***budget***, the predicted difference in **global revenue** is 0.29%. Both the slope and intercept of variables would vary depending on the genre.
+
+Let me distinguish the different effects of different genres of movies. For animated movies, its base revenue is relatively high, I think it is because the audience group of animated movies is relatively large, especially for children. It is obvious that parents accompany their children to see, or even a family to see. For movies with higher budgets, like ***Action***, ***Adventure***, the relationship between ***budget*** and ***global revenue*** tends to be positively correlated. However, for low-budget movies, ***budget*** have little or no effect on ***global revenue***, and in some cases, they are negatively correlated.
+
+### model checking
+
+```{r echo=FALSE, fig.cap="Residual plot and Q-Q plot"}
+residulPlot <- plot(model)
+qqPlot <- qqmath(model)
+grid.arrange(residulPlot, qqPlot, nrow = 1)
+```
+
+From the residual plot, I found that dots are randomly scattered around residuals = 0. Since they are symmetrically distributed and tend to cluster toward the middle of the graph, I conclude that this model is well-fitted for the data. However, by analyzing Q-Q residual plot, the points skew drastically from the line, so I need to consider adjusting my model by adding or removing other variables from the model.
+
+## Discussion
+
+In this project, the multilevel model is used to examine the relationship between ***global revenue*** and other numerical variables in different movie genres. In terms of fixed and random effects, all predictors have a positive impact on ***global revenue***. ***usa revenue*** has the largest impact on ***global revenue***, which indicates the outstanding contribution of the U.S. to the world film industry.
+
+In addition, there are still some limitations. For example, the movie schedule, if a movie released on the same day as \"The Avengers\", the revenue will be much lower. It must be said that competition is an uncontrollable factor. Of course, there are also some market conditions and political factors. None of these factors can be measured by data.
+
+***global revenue*** is also influenced by other non-numerical variables. Firstly, a well-known creative team will undoubtedly bring free publicity to the movie, so I will classify the company by its popularity and add the company\'s classification variable to the model. Additionally, English movies have a high audience compared to other languages, and I will divide the language category into English and non-English to study the influence of language on ***global revenue***.
+
+## Reference
+
+[1]R Bootcamp: Introduction to Multilevel Model and Interactions. <https://quantdev.ssri.psu.edu/tutorials/r-bootcamp-introduction-multilevel-model-and-interactions>
+
+[2]Explore multilevel models faster with the new merTools R package. <https://www.jaredknowles.com/journal/2015/8/12/announcing-mertools>
+
+[3]Data Analysis in R*.* <https://bookdown.org/steve_midway/DAR/random-effects.html>
+
+## Appendix
+
+```{r echo=FALSE, fig.cap="distribution plot"}
+ggplot(moviee, aes(year)) +
+  geom_bar() + ggtitle("# of Movie by Year") + 
+  scale_x_continuous(breaks=seq(1927,2022,by=9))
+```
+
+```{r echo=FALSE, fig.cap="EDA movies type from 1999 to 2019"}
+ggplot(movie_Genresplit, aes(x = genre, fill = genre)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle=45))
+```
+
+```{r echo=FALSE, fig.cap="distribution plot"}
+p1 <- ggplot(data=movie_Distinct,aes(x=duration))+
+  geom_histogram(aes(y=..density..),bins=30,fill="red")+geom_density(lwd=1,alpha=.4)
+p2 <- ggplot(data=movie_Distinct,aes(x=avg_vote))+
+  geom_histogram(aes(y=..density..),bins=30,fill="yellow")+geom_density(lwd=1,alpha=.4)
+p3 <- ggplot(data=movie_Distinct,aes(x=metascore))+
+  geom_histogram(aes(y=..density..),bins=30,fill="black")+geom_density(lwd=1,alpha=.4)
+p4 <- ggplot(data=movie_Distinct,aes(x=ConvertedAmount))+
+  geom_histogram(aes(y=..density..),bins=30,fill="orange")+geom_density(lwd=1,alpha=.4)
+p5 <- ggplot(data=movie_Distinct,aes(x=votes))+
+  geom_histogram(aes(y=..density..),bins=30,fill="pink")+geom_density(lwd=1,alpha=.4)
+p6 <- ggplot(data=movie_Distinct,aes(x=usa_gross_income))+
+  geom_histogram(aes(y=..density..),bins=30,fill="purple")+geom_density(lwd=1,alpha=.4)
+p7 <- ggplot(data=movie_Distinct,aes(x=worlwide_gross_income))+
+  geom_histogram(aes(y=..density..),bins=30,fill="green")+geom_density(lwd=1,alpha=.4)
+p8 <- ggplot(data=movie_Distinct,aes(x=reviews_from_users))+
+  geom_histogram(aes(y=..density..),bins=30,fill="blue")+geom_density(lwd=1,alpha=.4)
+p9 <- ggplot(data=movie_Distinct,aes(x=reviews_from_critics))+
+  geom_histogram(aes(y=..density..),bins=30,fill="grey")+geom_density(lwd=1,alpha=.4)
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,p9,nrow=3)
+
+```
+
+```{r echo=FALSE, fig.cap="relationship between rate and global revenue in different genre"}
+ggplot(data=movieClean, aes(x=rating,y=global_revenue)) +
+geom_point() +
+stat_smooth(method="lm", fullrange=TRUE) +
+xlab("rate") + ylab("global revenue") + 
+facet_wrap( ~ genre) 
+```
+
+```{r echo=FALSE,fig.cap="relationship between duration and global revenue"}
+ggplot(data=movieClean) +
+  aes(x=duration,y=global_revenue) +
+  geom_point(aes(color = genre),alpha = 0.3) +
+  geom_smooth(aes(color = genre),method = "lm",se=F,formula = 'y ~ x') +
+  xlab("duration") + ylab("global revenue") 
+```
+
+```{r echo=FALSE, fig.cap="relationship between votes and global revenue"}
+ggplot(data=movieClean) +
+  aes(x=votes,y=global_revenue) +
+  geom_point(aes(color = genre),alpha = 0.3) +
+  geom_smooth(aes(color = genre),method = "lm",se=F,formula = 'y ~ x') +
+  xlab("votes") + ylab("global revenue")
+```
+
+```{r echo=FALSE, fig.cap="relationship between budget and global revenue"}
+ggplot(data=movieClean) +
+  aes(x=budget,y=global_revenue) +
+  geom_point(aes(color = genre),alpha = 0.3) +
+  geom_smooth(aes(color = genre),method = "lm",se=F,formula = 'y ~ x') +
+  xlab("budget") + ylab("global revenue") 
+
+```
+
+```{r echo=FALSE, fig.cap="relationship between USA revenue and global revenue"}
+ggplot(data=movieClean) +
+  aes(x=usa_revenue,y=global_revenue) +
+  geom_point(aes(color = genre),alpha = 0.3) +
+  geom_smooth(aes(color = genre),method = "lm",se=F,formula = 'y ~ x') +
+  xlab("usa revenue") + ylab("global revenue")
+```

@@ -258,7 +258,7 @@ Figure 3 shows the correlation matrix of all potential variables related to glob
 
 Furthermore, since there is different intercept and different slope in each genre by exploring data, I fitted the multilevel level with a random slope and random intercept, which allows the impact of all predictors to vary randomly from one genre to another. Here is the model I created:
 
-```{r,warning=FALSE}
+```{r warning=FALSE}
 model <- lmer(global_revenue ~ duration + votes + budget + metascore + usa_revenue +(1 + duration + votes + budget + metascore + usa_revenue| genre), data = movieClean)
 summary(model)
 ```
@@ -277,12 +277,14 @@ Here is the table of fixed effects, indicating that all variables are considered
 | usa_revenue    | 0.55     | 0.02       | 17.71 | 24.66   | 3.70e-15 \*\*\* |
 
 ```{r include=TRUE, echo=FALSE}
+#plot fixed effects of model
 plotFEsim(FEsim(model, n.sims = 100), level = 0.9, stat = 'median', intercept = FALSE)
 ```
 
 Here is the table of random effects at genre level and plot the results of a simulation of the random effects to clarify.
 
 ```{r include=TRUE, echo=FALSE}
+#plot random effects of model
 round(ranef(model)$genre, digits = 2)
 
 plotREsim(REsim(model, n.sims = 1000))
